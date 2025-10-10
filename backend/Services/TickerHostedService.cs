@@ -16,7 +16,7 @@ public class TickerHostedService : BackgroundService
     private const string CourtId = "C1";
     private const string MatchId = "M1";
 
-    // Dva već završena meča (seed), sa vremenima završetka u prošlosti
+    // Seed: dva završena meča
     private readonly List<FinishedMatchV1> _finished = new()
     {
         new FinishedMatchV1(
@@ -31,7 +31,7 @@ public class TickerHostedService : BackgroundService
         )
     };
 
-    // Jedan budući meč koji će se odigrati (uključujući COURT 2)
+    // Najave (uključujući COURT 2)
     private readonly List<UpcomingMatchV1> _upcoming = new()
     {
         new UpcomingMatchV1("CENTER COURT", "Roger Federer vs Rafael Nadal"),
@@ -45,16 +45,17 @@ public class TickerHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        // Simulacija zadnja 2 poena (prikaz tri uzastopna score stringa,
-        // gdje treći implicira kraj meča i reset gem-scora)
-        var points = new[]
+        // Frame-ovi za završna 2 poena + FINAL
+        var frames = new (string Score, int DelaySeconds)[]
         {
-            "6-4 5-4 30-15",
-            "6-4 5-4 40-15",
-            "6-4 6-4 0-0"
+            ("6-4 5-4 15-0", 4),
+            ("6-4 5-4 30-0", 4),
+            ("6-4 5-4 30-15", 4),
+            ("6-4 5-4 40-15", 4),
+            ("6-4 6-4 FINAL", 5)
         };
 
-        foreach (var score in points)
+        foreach (var (score, delay) in frames)
         {
             var payload = new ScorePayloadV1(
                 MatchId: MatchId,
@@ -67,32 +68,26 @@ public class TickerHostedService : BackgroundService
 
             await _hub.Clients.All.SendAsync("ScoreUpdate", payload, ct);
 
-            // Pauza 2s između “poena”, osim nakon posljednjeg
-            if (score != points[^1])
-            {
-                await Task.Delay(TimeSpan.FromSeconds(2), ct);
-            }
+            if (delay > 0)
+                await Task.Delay(TimeSpan.FromSeconds(delay), ct);
         }
 
-        // Dodaj treći završeni meč (Djokovic vs Alcaraz)
-        _finished.Add(
-            new FinishedMatchV1(
-                "N. Djokovic vs C. Alcaraz",
-                new[] { "6:4", "6:4" },
-                DateTimeOffset.UtcNow
-            )
-        );
+        // Dodaj treći završeni (Djokovic vs Alcaraz)
+        _finished.Add(new FinishedMatchV1(
+            "N. Djokovic vs C. Alcaraz",
+            new[] { "6:4", "6:4" },
+            DateTimeOffset.UtcNow
+        ));
 
-        // Prikaži overlay REKLAME (ADS) na 10 sekundi
+        // ADS (5s)
         await _hub.Clients.All.SendAsync(
             "SceneSwitch",
             new SceneSwitchPayloadV1(CourtId, "ADS", DateTimeOffset.UtcNow),
             ct
         );
+        await Task.Delay(TimeSpan.FromSeconds(5), ct);
 
-        await Task.Delay(TimeSpan.FromSeconds(10), ct);
-
-        // Pošalji SUMARNI prikaz (GOTOVI MEČEVI + najave)
+        // Pošalji rezime (gotovi + najave)
         var summary = new SummaryPayloadV1(
             CourtId,
             _finished
@@ -101,17 +96,24 @@ public class TickerHostedService : BackgroundService
             _upcoming.ToArray(),
             DateTimeOffset.UtcNow
         );
-
         await _hub.Clients.All.SendAsync("SummaryUpdate", summary, ct);
 
-        // Prebaci scenu na SUMMARY (ekran “GOTOVI MEČEVI:”)
+        // Prikaži GOTOVI (FINISHED)
         await _hub.Clients.All.SendAsync(
             "SceneSwitch",
-            new SceneSwitchPayloadV1(CourtId, "SUMMARY", DateTimeOffset.UtcNow),
+            new SceneSwitchPayloadV1(CourtId, "FINISHED", DateTimeOffset.UtcNow),
             ct
         );
 
-        // Idle petlja (servis ostaje živ)
+        // Nakon 12s prikaži UPCOMING
+        await Task.Delay(TimeSpan.FromSeconds(12), ct);
+        await _hub.Clients.All.SendAsync(
+            "SceneSwitch",
+            new SceneSwitchPayloadV1(CourtId, "UPCOMING", DateTimeOffset.UtcNow),
+            ct
+        );
+
+        // Idle loop
         while (!ct.IsCancellationRequested)
         {
             await Task.Delay(TimeSpan.FromSeconds(5), ct);
