@@ -32,7 +32,8 @@ app.MapGet("/api/courts", () => new [] {
 
 var matches = new [] {
     new MatchSummary("M1", "C1", "N. Djokovic", "C. Alcaraz"),
-    new MatchSummary("M2", "C2", "J. Sinner", "A. Zverev")
+    new MatchSummary("M2", "C1", "R. Federer", "R. Nadal"),
+    new MatchSummary("M3", "C2", "A. Murray", "S. Wawrinka")
 };
 app.MapGet("/api/matches", () => matches);
 
