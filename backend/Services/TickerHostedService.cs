@@ -85,7 +85,7 @@ public class TickerHostedService : BackgroundService
             new SceneSwitchPayloadV1(CourtId, "ADS", DateTimeOffset.UtcNow),
             ct
         );
-        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        await Task.Delay(TimeSpan.FromSeconds(20), ct);
 
         // Pošalji rezime (gotovi + najave)
         var summary = new SummaryPayloadV1(

@@ -101,7 +101,16 @@ export default function Overlay() {
             playsInline
             autoPlay
             preload="auto"
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', zIndex: 0 }}
+            style={{
+               position: 'absolute',
+               inset: 0,
+               width: '100%',
+               height: '100%',
+               //objectFit: 'cover',
+                // Fit to screen bez kropljenja (letterbox/pillarbox po potrebi)
+               objectFit: 'contain',
+               zIndex: 0,
+             }}
             onError={() => setAdFailed(true)}
           />
         ) : (
