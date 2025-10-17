@@ -73,7 +73,9 @@ function App() {
   }, [phase, currentMatchFinished])
 
   useEffect(() => {
-    if (phase === 'ads') setAdsCountdown(10)
+    if (phase === 'ads') {
+      setAdsCountdown(10)
+    }
   }, [phase])
 
   useEffect(() => {

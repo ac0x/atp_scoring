@@ -10,6 +10,7 @@ public class ScoreHub : Hub
 
     public async Task BroadcastScene(SceneSwitchPayloadV1 payload)
         => await Clients.All.SendAsync("SceneSwitch", payload);
+
+    public async Task BroadcastAnnounceNext(AnnounceNextPayloadV1 payload)
+        => await Clients.All.SendAsync("AnnounceNext", payload);
 }
-
-
