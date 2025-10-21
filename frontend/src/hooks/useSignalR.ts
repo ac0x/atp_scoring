@@ -1,17 +1,19 @@
 import { HubConnectionBuilder, LogLevel, HubConnection } from '@microsoft/signalr'
 import { useEffect, useRef } from 'react'
+import { HUB_URL } from '@/config'
+import { canonicalSceneName } from '@/constants'
 import { useScoreStore } from '@/stores/useScoreStore'
 import type { ScorePayload, SummaryUpdate, AnnounceNextPayload } from '@/types'
 
 export function useSignalR() {
-  const url = import.meta.env.VITE_HUB_URL as string
+  const url = (HUB_URL ?? '/hubs/score') as string
   const connRef = useRef<HubConnection | null>(null)
-  const setStatus = useScoreStore(s => s.setStatus)
-  const setError = useScoreStore(s => s.setError)
-  const upsert = useScoreStore(s => s.upsert)
-  const setScene = useScoreStore(s => s.setScene)
-  const setSummary = useScoreStore(s => s.setSummary)
-  const setAnnounce = useScoreStore(s => s.setAnnounce)
+  const setStatus = useScoreStore((s) => s.setStatus)
+  const setError = useScoreStore((s) => s.setError)
+  const upsert = useScoreStore((s) => s.upsert)
+  const setScene = useScoreStore((s) => s.setScene)
+  const setSummary = useScoreStore((s) => s.setSummary)
+  const setAnnounce = useScoreStore((s) => s.setAnnounce)
 
   useEffect(() => {
     let mounted = true
@@ -24,28 +26,32 @@ export function useSignalR() {
     connRef.current = conn
 
     conn.on('ScoreUpdate', (p: ScorePayload) => upsert(p))
-    conn.onreconnecting(e => {
+
+    conn.onreconnecting((e) => {
       setStatus('reconnecting')
       setError(e?.message)
     })
+
     conn.onreconnected(() => {
       setStatus('connected')
       setError(undefined)
     })
-    conn.onclose(e => {
+
+    conn.onclose((e) => {
       setStatus('disconnected')
       setError(e?.message)
     })
 
-    const onScene = (p: { CourtId: string; Scene: string; ServerTimeUtc: string }) =>
-      setScene(p.CourtId, p.Scene)
+    const onScene = (p: { CourtId: string; Scene: string; ServerTimeUtc: string }) => {
+      setScene(p.CourtId, canonicalSceneName(p.Scene))
+    }
     conn.on('SceneSwitch', onScene)
     conn.on('sceneswitch', onScene)
 
     const onSummary = (p: SummaryUpdate) => {
       setSummary(p.CourtId, {
-        finished: p.Finished.map(f => ({ players: f.Players, sets: f.Sets })),
-        upcoming: p.Upcoming.map(u => ({ court: u.Court, players: u.Players })),
+        finished: p.Finished.map((f) => ({ players: f.Players, sets: f.Sets })),
+        upcoming: p.Upcoming.map((u) => ({ court: u.Court, players: u.Players })),
         serverTimeUtc: new Date(p.ServerTimeUtc).getTime(),
       })
     }

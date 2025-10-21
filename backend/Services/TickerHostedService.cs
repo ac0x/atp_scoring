@@ -3,16 +3,24 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Hosting;
 using Backend.Hubs;
 using Backend.Models;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Backend.Services;
 
 public class TickerHostedService : BackgroundService
 {
     private readonly IHubContext<ScoreHub> _hub;
+    private readonly ILogger<TickerHostedService> _logger;
+    private readonly ReadinessTracker _readiness;
+    private readonly TickerOptions _options;
+    private readonly TimeSpan _tickDelay;
+    private int _scoreBroadcastCount;
+
     private const string CourtId = "C1";
     private const string MatchId = "M1";
     private const string NextMatchId = "M2";
@@ -55,33 +63,59 @@ public class TickerHostedService : BackgroundService
         LastMeeting: "Wimbledon 2019"
     );
 
-    public TickerHostedService(IHubContext<ScoreHub> hub) { _hub = hub; }
+    public TickerHostedService(
+        IHubContext<ScoreHub> hub,
+        IOptionsMonitor<TickerOptions> options,
+        ILogger<TickerHostedService> logger,
+        ReadinessTracker readiness)
+    {
+        _hub = hub;
+        _logger = logger;
+        _readiness = readiness;
+        _options = options.CurrentValue ?? new TickerOptions();
+        var tickMs = _options.TickMs <= 0 ? 2000 : _options.TickMs;
+        _tickDelay = TimeSpan.FromMilliseconds(tickMs);
+    }
 
-    private Task BroadcastSceneAsync(string scene, CancellationToken ct) =>
-        _hub.Clients.All.SendAsync(
+    private Task BroadcastSceneAsync(string scene, CancellationToken ct)
+    {
+        _logger.LogInformation("SceneSwitch => {Scene}", scene);
+        return _hub.Clients.All.SendAsync(
             "SceneSwitch",
             new SceneSwitchPayloadV1(CourtId, scene, DateTimeOffset.UtcNow),
             ct);
+    }
 
     private Task BroadcastAnnounceAsync(
         string step,
         PlayerCardV1? player,
         H2HRecordV1? h2h,
-        CancellationToken ct) =>
-        _hub.Clients.All.SendAsync(
+        CancellationToken ct)
+    {
+        _logger.LogInformation("AnnounceNext => {Step}", step);
+        return _hub.Clients.All.SendAsync(
             "AnnounceNext",
             new AnnounceNextPayloadV1(CourtId, step, player, h2h, DateTimeOffset.UtcNow),
             ct);
+    }
+
+    private async Task DelayAsync(int milliseconds, CancellationToken ct)
+    {
+        if (milliseconds <= 0) return;
+        await Task.Delay(TimeSpan.FromMilliseconds(milliseconds), ct);
+    }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        var frames = new (string Score, int DelaySeconds)[]
+        _readiness.MarkTickerStarted();
+
+        var frames = new (string Score, TimeSpan Delay)[]
         {
-            ("6-4 5-4 15-0", 4),
-            ("6-4 5-4 30-0", 4),
-            ("6-4 5-4 30-15", 4),
-            ("6-4 5-4 40-15", 4),
-            ("6-4 6-4 FINAL", 5)
+            ("6-4 5-4 15-0", _tickDelay),
+            ("6-4 5-4 30-0", _tickDelay),
+            ("6-4 5-4 30-15", _tickDelay),
+            ("6-4 5-4 40-15", _tickDelay),
+            ("6-4 6-4 FINAL", TimeSpan.FromMilliseconds(_options.Announce.AdsMs))
         };
 
         foreach (var (score, delay) in frames)
@@ -96,17 +130,19 @@ public class TickerHostedService : BackgroundService
             );
 
             await _hub.Clients.All.SendAsync("ScoreUpdate", payload, ct);
+            _scoreBroadcastCount++;
+            _logger.LogInformation("ScoreUpdate count={Count}", _scoreBroadcastCount);
 
-            if (delay > 0)
+            if (delay > TimeSpan.Zero)
             {
-                await Task.Delay(TimeSpan.FromSeconds(delay), ct);
+                await Task.Delay(delay, ct);
             }
         }
 
         _finished.Add(new FinishedMatchV1("N. Djokovic vs C. Alcaraz", new[] { "6:4", "6:4" }, DateTimeOffset.UtcNow));
 
         await BroadcastSceneAsync("ADS", ct);
-        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        await DelayAsync(_options.Announce.AdsMs, ct);
 
         var summary = new SummaryPayloadV1(
             CourtId,
@@ -127,25 +163,25 @@ public class TickerHostedService : BackgroundService
 
         await BroadcastSceneAsync("ANNOUNCE_FED", ct);
         await BroadcastAnnounceAsync("ANNOUNCE_FED", Federer, null, ct);
-        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        await DelayAsync(_options.Announce.FedererMs, ct);
 
         await BroadcastSceneAsync("ANNOUNCE_NAD", ct);
         await BroadcastAnnounceAsync("ANNOUNCE_NAD", Nadal, null, ct);
-        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        await DelayAsync(_options.Announce.NadalMs, ct);
 
         await BroadcastSceneAsync("ANNOUNCE_H2H", ct);
         await BroadcastAnnounceAsync("ANNOUNCE_H2H", null, FedererVsNadal, ct);
-        await Task.Delay(TimeSpan.FromSeconds(6), ct);
+        await DelayAsync(_options.Announce.H2HMs, ct);
 
         await BroadcastSceneAsync("ANNOUNCE_SIM", ct);
 
-        var announceSimFrames = new (string Score, int DelaySeconds)[]
+        var announceSimFrames = new (string Score, TimeSpan Delay)[]
         {
-            ("0-0 0-0", 2),
-            ("0-0 15-0", 2),
-            ("0-0 30-0", 2),
-            ("0-0 40-0", 2),
-            ("1-0 0-0", 2)
+            ("0-0 0-0", _tickDelay),
+            ("0-0 15-0", _tickDelay),
+            ("0-0 30-0", _tickDelay),
+            ("0-0 40-0", _tickDelay),
+            ("1-0 0-0", _tickDelay)
         };
 
         foreach (var (score, delay) in announceSimFrames)
@@ -160,10 +196,12 @@ public class TickerHostedService : BackgroundService
             );
 
             await _hub.Clients.All.SendAsync("ScoreUpdate", nextPayload, ct);
+            _scoreBroadcastCount++;
+            _logger.LogInformation("ScoreUpdate count={Count}", _scoreBroadcastCount);
 
-            if (delay > 0)
+            if (delay > TimeSpan.Zero)
             {
-                await Task.Delay(TimeSpan.FromSeconds(delay), ct);
+                await Task.Delay(delay, ct);
             }
         }
 
@@ -179,6 +217,8 @@ public class TickerHostedService : BackgroundService
         );
 
         await _hub.Clients.All.SendAsync("ScoreUpdate", livePayload, ct);
+        _scoreBroadcastCount++;
+        _logger.LogInformation("ScoreUpdate count={Count}", _scoreBroadcastCount);
 
         while (!ct.IsCancellationRequested)
         {

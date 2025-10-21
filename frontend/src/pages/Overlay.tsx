@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useParams } from 'react-router-dom'
+import { SCENE } from '@/constants'
 import { useSignalR } from '@/hooks/useSignalR'
 import { useScoreStore } from '@/stores/useScoreStore'
 
@@ -20,6 +21,7 @@ export default function Overlay() {
   const announce = useScoreStore((s) => (courtId ? s.announceByCourt[courtId] : undefined))
 
   const [adFailed, setAdFailed] = useState(false)
+  const [waitingForLive, setWaitingForLive] = useState(false)
   const adRef = useRef<HTMLVideoElement | null>(null)
 
   const scoreDetails = useMemo(() => {
@@ -69,17 +71,12 @@ export default function Overlay() {
     const finalLineRaw = sets.map((set) => `${set.playerA}:${set.playerB}`).join(' ').trim()
     const finalLine = finalLineRaw.length > 0 ? finalLineRaw : 'FINAL'
 
-    return {
-      sets,
-      currentGame,
-      isFinal,
-      finalLine,
-    }
+    return { sets, currentGame, isFinal, finalLine }
   }, [payload])
 
   useEffect(() => {
-    const p = new URLSearchParams(location.search)
-    if (p.get('autoFs') === '1') {
+    const params = new URLSearchParams(location.search)
+    if (params.get('autoFs') === '1') {
       setTimeout(async () => {
         try {
           await document.documentElement.requestFullscreen()
@@ -89,27 +86,41 @@ export default function Overlay() {
   }, [])
 
   useEffect(() => {
-    if (scene === 'ADS') {
+    if (payload) {
+      setWaitingForLive(false)
+      return
+    }
+    const timeout = setTimeout(() => setWaitingForLive(true), 10_000)
+    return () => clearTimeout(timeout)
+  }, [payload])
+
+  useEffect(() => {
+    if (scene === SCENE.ADS) {
       setAdFailed(false)
       const video = adRef.current
       if (video) {
         video.currentTime = 0
         const playPromise = video.play()
         if (playPromise) {
-          playPromise.catch(() => {
-            setAdFailed(true)
-          })
+          playPromise.catch(() => setAdFailed(true))
         }
       }
     }
   }, [scene])
 
-  if (scene === 'ADS') {
+  if (scene === SCENE.ADS) {
     return (
-      <div style={{
-        position: 'relative', width: '100vw', height: '100vh', overflow: 'hidden',
-        background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          overflow: 'hidden',
+          background: '#000',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         {AD_VIDEO_SRC && !adFailed ? (
           <video
             key={AD_VIDEO_SRC}
@@ -120,62 +131,99 @@ export default function Overlay() {
             autoPlay
             preload="auto"
             style={{
-               position: 'absolute',
-               inset: 0,
-               width: '100%',
-               height: '100%',
-               //objectFit: 'cover',
-                // Fit to screen bez kropljenja (letterbox/pillarbox po potrebi)
-               objectFit: 'contain',
-               zIndex: 0,
-             }}
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              zIndex: 0,
+            }}
             onError={() => setAdFailed(true)}
           />
         ) : (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'radial-gradient(circle at center, rgba(255, 209, 102, 0.3), rgba(0, 0, 0, 0.95))',
-            color: '#ffd166', fontFamily: 'system-ui', fontSize: 56, fontWeight: 800, letterSpacing: '0.2em', zIndex: 2,
-          }}>
-            REKLAME
-          </div>
+          <>
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background:
+                  'radial-gradient(circle at center, rgba(255, 209, 102, 0.3), rgba(0, 0, 0, 0.95))',
+                color: '#ffd166',
+                fontFamily: 'system-ui',
+                fontSize: 56,
+                fontWeight: 800,
+                letterSpacing: '0.2em',
+                zIndex: 2,
+              }}
+            >
+              REKLAME
+            </div>
+            <div
+              style={{
+                position: 'absolute',
+                left: '50%',
+                bottom: 24,
+                transform: 'translateX(-50%)',
+                color: 'rgba(255,255,255,0.75)',
+                fontSize: 14,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                zIndex: 3,
+              }}
+            >
+              Put /frontend/public/ads45.mp4 to autoplay ads
+            </div>
+          </>
         )}
-        <div style={{
-          position: 'absolute', inset: 0, background: 'linear-gradient(135deg, rgba(5, 18, 34, 0.15), rgba(3, 9, 18, 0.65))',
-          pointerEvents: 'none', zIndex: 1,
-        }} />
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(135deg, rgba(5, 18, 34, 0.15), rgba(3, 9, 18, 0.65))',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
       </div>
     )
   }
 
   const screenStyle: CSSProperties = {
-    width: '100vw',
-    height: '100vh',
+    position: 'fixed',
+    inset: 0,
     display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: 'column',
+    justifyContent: 'stretch',
+    alignItems: 'stretch',
     background: 'radial-gradient(circle at top, #0b1d33 0%, #030912 80%)',
     color: '#f2f5f8',
     fontFamily: 'system-ui',
   }
 
   const cardStyle: CSSProperties = {
-    width: 'min(960px, 90vw)',
-    padding: '48px 64px',
-    borderRadius: 24,
-    background: 'rgba(8, 24, 40, 0.92)',
-    boxShadow: '0 20px 60px rgba(0,0,0,0.45)',
-    border: '1px solid rgba(143, 215, 255, 0.2)',
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    padding: 'clamp(32px, 6vh, 72px) clamp(32px, 6vw, 96px)',
+    boxSizing: 'border-box',
+    borderRadius: 0,
+    background: 'rgba(8, 24, 40, 0.85)',
+    border: 'none',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 'clamp(16px, 3vh, 48px)',
   }
 
-  if (scene === 'FINISHED') {
+  if (scene === SCENE.FINISHED) {
     return (
       <div style={screenStyle}>
         <div style={cardStyle}>
           <h1
             style={{
               margin: 0,
-              marginBottom: 32,
               fontSize: 32,
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
@@ -194,7 +242,7 @@ export default function Overlay() {
                 margin: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 16,
+                gap: 'clamp(12px, 2vh, 28px)',
               }}
             >
               {summary.finished.map((match, idx) => (
@@ -204,8 +252,8 @@ export default function Overlay() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     gap: 16,
-                    padding: '18px 24px',
-                    borderRadius: 16,
+                    padding: 'clamp(14px, 1.8vh, 24px) clamp(18px, 2.2vw, 32px)',
+                    borderRadius: 20,
                     background: 'rgba(255,255,255,0.05)',
                     border: '1px solid rgba(255,255,255,0.08)',
                   }}
@@ -225,14 +273,13 @@ export default function Overlay() {
     )
   }
 
-  if (scene === 'UPCOMING') {
+  if (scene === SCENE.UPCOMING) {
     return (
       <div style={screenStyle}>
         <div style={cardStyle}>
           <h1
             style={{
               margin: 0,
-              marginBottom: 32,
               fontSize: 32,
               letterSpacing: '0.12em',
               textTransform: 'uppercase',
@@ -251,7 +298,7 @@ export default function Overlay() {
                 margin: 0,
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 16,
+                gap: 'clamp(12px, 2vh, 28px)',
               }}
             >
               {summary.upcoming.map((match) => (
@@ -261,8 +308,8 @@ export default function Overlay() {
                     display: 'flex',
                     justifyContent: 'space-between',
                     gap: 16,
-                    padding: '16px 22px',
-                    borderRadius: 16,
+                    padding: 'clamp(14px, 1.8vh, 24px) clamp(18px, 2.2vw, 32px)',
+                    borderRadius: 20,
                     background: 'rgba(143, 215, 255, 0.12)',
                     border: '1px solid rgba(143, 215, 255, 0.25)',
                   }}
@@ -280,16 +327,15 @@ export default function Overlay() {
     )
   }
 
-  if (scene === 'ANNOUNCE_FED' || scene === 'ANNOUNCE_NAD') {
+  if (scene === SCENE.ANN_FED || scene === SCENE.ANN_NAD) {
     const player = announce?.Player
     return (
       <div style={screenStyle}>
         <div
           style={{
             ...cardStyle,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 28,
+            justifyContent: 'center',
+            gap: 'clamp(20px, 3vh, 40px)',
             alignItems: 'stretch',
           }}
         >
@@ -317,10 +363,10 @@ export default function Overlay() {
             style={{
               display: 'flex',
               flexDirection: 'column',
-              gap: 16,
+              gap: 'clamp(12px, 2vh, 28px)',
               background: 'rgba(255,255,255,0.04)',
-              borderRadius: 20,
-              padding: '28px 32px',
+              borderRadius: 24,
+              padding: 'clamp(20px, 2.6vh, 36px) clamp(24px, 3vw, 44px)',
               border: '1px solid rgba(143, 215, 255, 0.18)',
             }}
           >
@@ -334,16 +380,15 @@ export default function Overlay() {
     )
   }
 
-  if (scene === 'ANNOUNCE_H2H') {
+  if (scene === SCENE.ANN_H2H) {
     const h2h = announce?.H2H
     return (
       <div style={screenStyle}>
         <div
           style={{
             ...cardStyle,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 32,
+            justifyContent: 'center',
+            gap: 'clamp(20px, 3vh, 48px)',
             alignItems: 'stretch',
           }}
         >
@@ -388,45 +433,56 @@ export default function Overlay() {
   }
 
   if (!payload) {
-    const message =
-      scene === 'ANNOUNCE_SIM'
+    const baseMessage =
+      scene === SCENE.ANN_SIM
         ? 'Čeka se simulacija narednog meča...'
-        : scene === 'LIVE'
-        ? 'Nema aktivnog meča za prikaz.'
-        : `Nema aktivnog meča za teren ${courtId}.`
+        : scene === SCENE.LIVE
+        ? 'No live data yet'
+        : courtId
+        ? `Nema aktivnog meča za teren ${courtId}.`
+        : 'Nema aktivnog meča za prikaz.'
+
     return (
       <div style={screenStyle}>
         <div
           style={{
-            padding: '24px 32px',
-            borderRadius: 18,
-            background: 'rgba(8, 24, 40, 0.9)',
-            border: '1px solid rgba(143, 215, 255, 0.2)',
-            fontSize: 20,
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: 16,
+            fontSize: 22,
             letterSpacing: '0.08em',
-            textAlign: 'center',
           }}
         >
-          {message}
+          <span>{baseMessage}</span>
+          {scene === SCENE.LIVE && waitingForLive && (
+            <span style={{ fontSize: 18, color: 'rgba(255,255,255,0.7)', letterSpacing: '0.05em' }}>
+              Waiting for live feed…
+            </span>
+          )}
         </div>
       </div>
     )
   }
 
   const scoreboardCardStyle: CSSProperties = {
-    width: 'min(900px, 90vw)',
-    padding: '40px 48px',
-    borderRadius: 28,
-    background: 'rgba(5, 18, 34, 0.92)',
-    boxShadow: '0 30px 80px rgba(0,0,0,0.55)',
-    border: '1px solid rgba(143, 215, 255, 0.25)',
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    padding: 'clamp(32px, 6vh, 72px) clamp(32px, 6vw, 112px)',
+    boxSizing: 'border-box',
+    borderRadius: 0,
+    background: 'rgba(5, 18, 34, 0.88)',
+    border: 'none',
     display: 'flex',
     flexDirection: 'column',
-    gap: 28,
+    gap: 'clamp(18px, 3vh, 48px)',
   }
 
   const headerCellStyle: CSSProperties = {
-    padding: '14px 18px',
+    padding: 'clamp(12px, 1.6vh, 18px) clamp(16px, 2vw, 26px)',
     borderBottom: '1px solid rgba(255,255,255,0.14)',
     fontSize: 14,
     letterSpacing: '0.18em',
@@ -436,7 +492,7 @@ export default function Overlay() {
   }
 
   const nameCellStyle: CSSProperties = {
-    padding: '20px 22px',
+    padding: 'clamp(18px, 2.4vh, 28px) clamp(18px, 2.4vw, 28px)',
     borderBottom: '1px solid rgba(255,255,255,0.14)',
     fontSize: 30,
     fontWeight: 700,
@@ -446,7 +502,7 @@ export default function Overlay() {
   }
 
   const scoreCellStyle: CSSProperties = {
-    padding: '20px 0',
+    padding: 'clamp(18px, 2.4vh, 28px) 0',
     borderBottom: '1px solid rgba(255,255,255,0.14)',
     fontSize: 30,
     fontWeight: 600,
@@ -463,9 +519,9 @@ export default function Overlay() {
             fontSize: 16,
             letterSpacing: '0.22em',
             color:
-              scene === 'ANNOUNCE_SIM'
+              scene === SCENE.ANN_SIM
                 ? '#ffd166'
-                : scene === 'LIVE'
+                : scene === SCENE.LIVE
                 ? '#8fd7ff'
                 : scoreDetails?.isFinal
                 ? '#ffd166'
@@ -473,9 +529,9 @@ export default function Overlay() {
             textTransform: 'uppercase',
           }}
         >
-          {scene === 'ANNOUNCE_SIM'
+          {scene === SCENE.ANN_SIM
             ? 'NAJAVA MEČA – SIMULACIJA'
-            : scene === 'LIVE'
+            : scene === SCENE.LIVE
             ? 'MEČ UŽIVO'
             : scoreDetails?.isFinal
             ? 'KONAČAN REZULTAT'

@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import type { Court, MatchSummary, ScorePayload, SummaryData, AnnounceNextPayload } from '@/types'
+import { isFresher } from '@/utils/time'
+
+const MAX_CLOCK_SKEW_MS = 60 * 60 * 1000
 
 type Conn = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error'
 
@@ -10,7 +13,7 @@ type State = {
   courts: Court[]
   matches: MatchSummary[]
   byMatch: Record<string, ScorePayload>
-  byCourt: Record<string, ScorePayload> // poslednji update po terenu
+  byCourt: Record<string, ScorePayload>
   sceneByCourt: Record<string, string>
   summaryByCourt: Record<string, SummaryData>
   announceByCourt: Record<string, AnnounceNextPayload | undefined>
@@ -52,11 +55,22 @@ export const useScoreStore = create<State>((set) => ({
     set((st) => {
       const next = { ...st.byCourt }
       const current = st.byCourt[p.CourtId]
-      // Ako imamo stariji paket za isti court, zameni samo ako je novi svežiji
-      const ok =
-        !current ||
-        new Date(p.ServerTimeUtc).getTime() >= new Date(current.ServerTimeUtc).getTime()
-      if (ok) next[p.CourtId] = p
+      const accept = !current || isFresher(p.ServerTimeUtc, current.ServerTimeUtc)
+
+      const serverTimeMs = Date.parse(p.ServerTimeUtc)
+      if (!Number.isNaN(serverTimeMs) && Math.abs(serverTimeMs - Date.now()) > MAX_CLOCK_SKEW_MS) {
+        console.warn(
+          '[score-store] Large clock skew detected for court %s (payload=%s, now=%s)',
+          p.CourtId,
+          p.ServerTimeUtc,
+          new Date().toISOString()
+        )
+      }
+
+      if (accept) {
+        next[p.CourtId] = p
+      }
+
       return {
         byMatch: { ...st.byMatch, [p.MatchId]: p },
         byCourt: next,
