@@ -1,60 +1,55 @@
-using System.Linq;
 using Backend.Hubs;
 using Backend.Models;
 using Backend.Services;
 using Backend.SmartDirectorListener.Extensions;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 
 var builder = WebApplication.CreateBuilder(args);
 
-const string CorsPolicy = "LocalDev";
+const string CorsPolicyName = "LocalDev";
 
-// CORS: čita dozvoljene origin-e iz konfiguracije; fallback na localhost:5173
-var configuredOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins")
-    .Get<string[]>()
-    ?.Where(o => !string.IsNullOrWhiteSpace(o))
-    .Select(o => o.Trim())
-    .Where(o => o.Length > 0)
+// Allowed origins from config (fallback to localhost)
+var allowedOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>())
+    .Select(o => o?.Trim())
+    .Where(o => !string.IsNullOrWhiteSpace(o))
+    .Distinct()
     .ToArray();
 
-if (configuredOrigins is not { Length: > 0 })
+if (allowedOrigins.Length == 0)
 {
-    configuredOrigins = new[] { "http://localhost:5173", "https://localhost:5173" };
+    allowedOrigins = new[] { "http://localhost:5173", "https://localhost:5173" };
 }
 
-builder.Services.AddCors(options =>
+builder.Services.AddCors(o =>
 {
-    options.AddPolicy(CorsPolicy, policy =>
-    {
-        policy
-            .WithOrigins(configuredOrigins)
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
+    o.AddPolicy(CorsPolicyName, p =>
+        p.WithOrigins(allowedOrigins)
+         .AllowAnyHeader()
+         .AllowAnyMethod()
+         .AllowCredentials());
 });
 
-// SignalR (zadržava PascalCase kontrakt)
+// SignalR: keep PascalCase contract
 builder.Services.AddSignalR().AddJsonProtocol(o =>
 {
     o.PayloadSerializerOptions.PropertyNamingPolicy = null;
 });
 
-// Background ticker i readiness tracking
+// Background ticker, options & readiness
 builder.Services.AddSingleton<ReadinessTracker>();
 builder.Services.Configure<TickerOptions>(builder.Configuration.GetSection("Ticker"));
-builder.Services.AddSingleton<TickerHostedService>();
-builder.Services.AddHostedService(sp => sp.GetRequiredService<TickerHostedService>());
+builder.Services.AddHostedService<TickerHostedService>();
+
+// SmartDirector listener
 builder.Services.AddSmartDirectorListener(builder.Configuration);
 
 var app = builder.Build();
 
-app.UseCors(CorsPolicy);
+app.UseCors(CorsPolicyName);
 
-// Mock REST rute
+// Mock REST routes
 app.MapGet("/api/courts", () => new[]
 {
     new Court("C1", "Center Court"),
@@ -86,14 +81,17 @@ app.MapGet("/readyz", (ReadinessTracker readiness) =>
         hubReady = readiness.HubReady,
         timeUtc = DateTimeOffset.UtcNow
     };
+
     return ready
         ? Results.Json(payload)
         : Results.Json(payload, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
-// SignalR hub
+// SignalR hubs
 app.MapHub<ScoreHub>("/hubs/score");
 app.MapHub<LiveHub>("/live");
+
+// Mark hub ready
 app.Services.GetRequiredService<ReadinessTracker>().MarkHubReady();
 
 app.Run();

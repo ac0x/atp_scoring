@@ -22,7 +22,6 @@ export type SummaryData = {
   upcoming: { court: string; players: string }[]
   serverTimeUtc: number
 }
-
 export type PlayerCard = {
   Name: string
   Country: string
@@ -54,4 +53,8 @@ export type LiveSnapshotPayload = {
   points: string
   server: string
   clock: string
+}
+
+export type LiveSnapshot = LiveSnapshotPayload & {
+  receivedAt: number
 }

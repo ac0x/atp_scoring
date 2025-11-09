@@ -2,8 +2,20 @@ import './App.css'
 import { useMemo } from 'react'
 import { useLiveFeed } from '@/hooks/useLiveFeed'
 import { useLiveFeedStore } from '@/stores/useLiveFeedStore'
+import type { LiveSnapshot } from '@/types'
 
-export default function App() {
+function formatTime(ts?: number | string | null): string {
+  if (!ts) return '—'
+  const d = new Date(ts)
+  return d.toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function App() {
   useLiveFeed()
 
   const snapshot = useLiveFeedStore((s) => s.snapshot)
@@ -13,27 +25,19 @@ export default function App() {
   const error = useLiveFeedStore((s) => s.error)
 
   const scoreLine = useMemo(() => {
-    if (!snapshot?.sets?.length) return '—'
-    return snapshot.sets.join(', ')
-  }, [snapshot])
+    const sets = snapshot?.sets ?? []
+    return sets.length > 0 ? sets.join(', ') : '—'
+  }, [snapshot?.sets])
 
   const serverLabel = useMemo(() => {
-    if (!snapshot?.server) return '—'
-    const side = snapshot.server.toString().toUpperCase()
-    if (side === 'A') return `A (${snapshot.teamA ?? '—'})`
-    if (side === 'B') return `B (${snapshot.teamB ?? '—'})`
-    return snapshot.server
-  }, [snapshot])
+    const s = snapshot?.server?.toUpperCase()
+    if (!s) return '—'
+    if (s === 'A') return `A (${snapshot?.teamA ?? '—'})`
+    if (s === 'B') return `B (${snapshot?.teamB ?? '—'})`
+    return snapshot?.server ?? '—'
+  }, [snapshot?.server, snapshot?.teamA, snapshot?.teamB])
 
-  const lastUpdatedDisplay = useMemo(() => {
-    if (!lastReceived) return '—'
-    return new Date(lastReceived).toLocaleTimeString(undefined, {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  }, [lastReceived])
+  const lastUpdatedText = useMemo(() => formatTime(lastReceived), [lastReceived])
 
   return (
     <div className="app">
@@ -49,7 +53,7 @@ export default function App() {
             <div className="match-card">
               <div className="match-header">
                 <span className="players">
-                  {snapshot.teamA ?? '—'} vs {snapshot.teamB ?? '—'}
+                  {snapshot.teamA} vs {snapshot.teamB}
                 </span>
                 <span className="court">SMARTDIRECTOR</span>
               </div>
@@ -76,7 +80,7 @@ export default function App() {
                   </li>
                   <li>
                     <span className="event-index">Last update:</span>
-                    <span className="event-description">{lastUpdatedDisplay}</span>
+                    <span className="event-description">{lastUpdatedText}</span>
                   </li>
                 </ul>
               </div>
@@ -91,10 +95,10 @@ export default function App() {
 
           {history.length > 0 ? (
             <ul className="finished-list">
-              {history.map((entry) => (
-                <li key={entry.receivedAt} className="finished-item">
+              {history.map((entry: LiveSnapshot) => (
+                <li key={entry.receivedAt ?? `${entry.teamA}-${entry.teamB}-${Math.random()}`} className="finished-item">
                   <div className="finished-players">
-                    {entry.teamA ?? '—'} vs {entry.teamB ?? '—'}
+                    {entry.teamA} vs {entry.teamB}
                   </div>
                   <div className="finished-score">
                     {(entry.sets?.length ? entry.sets.join(' ') : '—') + ' · ' + (entry.points || '—')}
@@ -115,7 +119,7 @@ export default function App() {
               </li>
               <li className="upcoming-item">
                 <span className="upcoming-court">Last frame</span>
-                <span className="upcoming-players">{lastUpdatedDisplay}</span>
+                <span className="upcoming-players">{lastUpdatedText}</span>
               </li>
               {error && (
                 <li className="upcoming-item">
@@ -130,3 +134,5 @@ export default function App() {
     </div>
   )
 }
+
+export default App
