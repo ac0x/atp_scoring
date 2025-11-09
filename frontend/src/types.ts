@@ -46,3 +46,12 @@ export type AnnounceNextPayload = {
   H2H?: H2HRecord
   ServerTimeUtc: string
 }
+
+export type LiveSnapshotPayload = {
+  teamA: string
+  teamB: string
+  sets: string[]
+  points: string
+  server: string
+  clock: string
+}

@@ -1,183 +1,132 @@
-import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { useMemo } from 'react'
+import { useLiveFeed } from '@/hooks/useLiveFeed'
+import { useLiveFeedStore } from '@/stores/useLiveFeedStore'
 
-type MatchScore = {
-  players: string
-  score: string[]
-  court?: string
-}
+export default function App() {
+  useLiveFeed()
 
-type PointEvent = {
-  winner: string
-  description: string
-}
+  const snapshot = useLiveFeedStore((s) => s.snapshot)
+  const history = useLiveFeedStore((s) => s.history)
+  const status = useLiveFeedStore((s) => s.status)
+  const lastReceived = useLiveFeedStore((s) => s.lastReceived)
+  const error = useLiveFeedStore((s) => s.error)
 
-type Phase = 'live' | 'ads' | 'summary'
+  const scoreLine = useMemo(() => {
+    if (!snapshot?.sets?.length) return '—'
+    return snapshot.sets.join(', ')
+  }, [snapshot])
 
-const INITIAL_COMPLETED: MatchScore[] = [
-  { players: 'Hamad Medjedovic vs Jannik Sinner', score: ['6:2', '6:4'] },
-  { players: 'Daniil Medvedev vs Alexander Zverev', score: ['5:7', '2:6'] },
-]
+  const serverLabel = useMemo(() => {
+    if (!snapshot?.server) return '—'
+    const side = snapshot.server.toString().toUpperCase()
+    if (side === 'A') return `A (${snapshot.teamA ?? '—'})`
+    if (side === 'B') return `B (${snapshot.teamB ?? '—'})`
+    return snapshot.server
+  }, [snapshot])
 
-const CURRENT_MATCH_FINAL_SCORE = ['6:4', '7:5']
-
-function App() {
-  const [phase, setPhase] = useState<Phase>('live')
-  const [playedEvents, setPlayedEvents] = useState<PointEvent[]>([])
-  const [currentMatchFinished, setCurrentMatchFinished] = useState(false)
-  const [completedMatches, setCompletedMatches] = useState<MatchScore[]>(INITIAL_COMPLETED)
-  const [adsCountdown, setAdsCountdown] = useState(10)
-
-  const pointSequence: PointEvent[] = useMemo(
-    () => [
-      {
-        winner: 'Novak Djokovic',
-        description: 'servis kojim iznuđuje grešku Alcaraza',
-      },
-      {
-        winner: 'Novak Djokovic',
-        description: 'forhend winner po paraleli za pobedu',
-      },
-    ],
-    []
-  )
-
-  const remainingPoints = pointSequence.length - playedEvents.length
-
-  useEffect(() => {
-    if (phase !== 'live') return
-
-    if (playedEvents.length < pointSequence.length) {
-      const timer = setTimeout(() => {
-        setPlayedEvents((prev) => [...prev, pointSequence[prev.length]])
-      }, 2000)
-      return () => clearTimeout(timer)
-    }
-
-    if (playedEvents.length === pointSequence.length && !currentMatchFinished) {
-      setCurrentMatchFinished(true)
-    }
-  }, [phase, playedEvents, pointSequence, currentMatchFinished])
-
-  useEffect(() => {
-    if (phase === 'live' && currentMatchFinished) {
-      setCompletedMatches((prev) => [
-        ...prev,
-        {
-          players: 'Novak Djokovic vs Carlos Alcaraz',
-          score: CURRENT_MATCH_FINAL_SCORE,
-        },
-      ])
-      setPhase('ads')
-    }
-  }, [phase, currentMatchFinished])
-
-  useEffect(() => {
-    if (phase === 'ads') {
-      setAdsCountdown(10)
-    }
-  }, [phase])
-
-  useEffect(() => {
-    if (phase !== 'ads') return
-
-    if (adsCountdown > 0) {
-      const timer = setTimeout(() => setAdsCountdown((value) => value - 1), 1000)
-      return () => clearTimeout(timer)
-    }
-
-    if (adsCountdown === 0) {
-      setPhase('summary')
-    }
-  }, [phase, adsCountdown])
-
-  const upcomingMatches = useMemo(
-    () => [
-      { court: 'CENTER COURT', players: 'Roger Federer vs Rafael Nadal' },
-      { court: 'COURT 2', players: 'Andy Murray vs Stan Wawrinka' },
-    ],
-    []
-  )
+  const lastUpdatedDisplay = useMemo(() => {
+    if (!lastReceived) return '—'
+    return new Date(lastReceived).toLocaleTimeString(undefined, {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }, [lastReceived])
 
   return (
     <div className="app">
       <header className="header">
-        <h1>ATP Scoring Simulator</h1>
+        <h1>ATP SmartDirector Preview</h1>
       </header>
 
       <main className="content">
-        {phase === 'live' && (
-          <section className="panel live-panel">
-            <h2>Trenutni meč</h2>
+        <section className="panel live-panel">
+          <h2>Trenutni meč</h2>
+
+          {snapshot ? (
             <div className="match-card">
               <div className="match-header">
-                <span className="players">Novak Djokovic vs Carlos Alcaraz</span>
-                <span className="court">CENTER COURT</span>
+                <span className="players">
+                  {snapshot.teamA ?? '—'} vs {snapshot.teamB ?? '—'}
+                </span>
+                <span className="court">SMARTDIRECTOR</span>
               </div>
+
               <div className="score-line">
                 <span>Rezultat setova:</span>
-                <span className="score-values">6:4, 5:4*</span>
+                <span className="score-values">{scoreLine}</span>
               </div>
+
               <div className="points-remaining">
-                Preostalo poena do kraja meča: <strong>{remainingPoints}</strong>
+                Trenutni gem: <strong>{snapshot.points || '—'}</strong>
               </div>
+
               <div className="events">
-                <h3>Simulacija poena</h3>
+                <h3>Live detalji</h3>
                 <ul>
-                  {playedEvents.map((event, index) => (
-                    <li key={`${event.winner}-${index}`}>
-                      <span className="event-index">Poen {index + 1}:</span>{' '}
-                      <span className="event-description">
-                        {event.winner} - {event.description}
-                      </span>
-                    </li>
-                  ))}
+                  <li>
+                    <span className="event-index">Server:</span>
+                    <span className="event-description">{serverLabel}</span>
+                  </li>
+                  <li>
+                    <span className="event-index">Clock:</span>
+                    <span className="event-description">{snapshot.clock || '—'}</span>
+                  </li>
+                  <li>
+                    <span className="event-index">Last update:</span>
+                    <span className="event-description">{lastUpdatedDisplay}</span>
+                  </li>
                 </ul>
-                {remainingPoints === 0 && (
-                  <div className="match-complete">Meč je završen! Rezultat: 6:4, 7:5</div>
-                )}
               </div>
             </div>
-          </section>
-        )}
+          ) : (
+            <div className="waiting-message">Waiting for SmartDirector feed…</div>
+          )}
+        </section>
 
-        {phase === 'summary' && (
-          <section className="panel summary-panel">
-            <h2>GOTOVI MEČEVI:</h2>
+        <section className="panel summary-panel">
+          <h2>Live feed history</h2>
+
+          {history.length > 0 ? (
             <ul className="finished-list">
-              {completedMatches.map((match, index) => (
-                <li key={`${match.players}-${index}`} className="finished-item">
-                  <div className="finished-players">{match.players}</div>
-                  <div className="finished-score">{match.score.join(' ')}</div>
+              {history.map((entry) => (
+                <li key={entry.receivedAt} className="finished-item">
+                  <div className="finished-players">
+                    {entry.teamA ?? '—'} vs {entry.teamB ?? '—'}
+                  </div>
+                  <div className="finished-score">
+                    {(entry.sets?.length ? entry.sets.join(' ') : '—') + ' · ' + (entry.points || '—')}
+                  </div>
                 </li>
               ))}
             </ul>
+          ) : (
+            <div className="waiting-message small">No frames received yet.</div>
+          )}
 
-            <div className="upcoming">
-              <h3>SLEDEĆI MEČEVI:</h3>
-              <ul>
-                {upcomingMatches.map((match) => (
-                  <li key={match.players} className="upcoming-item">
-                    <span className="upcoming-court">{match.court}</span>
-                    <span className="upcoming-players">{match.players}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-        )}
-      </main>
-
-      {phase === 'ads' && (
-        <div className="ads-overlay">
-          <div className="ads-content">
-            <span className="ads-label">REKLAME</span>
-            <span className="ads-countdown">Nastavak za {adsCountdown} s</span>
+          <div className="upcoming">
+            <h3>Status</h3>
+            <ul>
+              <li className="upcoming-item">
+                <span className="upcoming-court">Connection</span>
+                <span className="upcoming-players">{status}</span>
+              </li>
+              <li className="upcoming-item">
+                <span className="upcoming-court">Last frame</span>
+                <span className="upcoming-players">{lastUpdatedDisplay}</span>
+              </li>
+              {error && (
+                <li className="upcoming-item">
+                  <span className="upcoming-court">Last error</span>
+                  <span className="upcoming-players error-text">{error}</span>
+                </li>
+              )}
+            </ul>
           </div>
-        </div>
-      )}
+        </section>
+      </main>
     </div>
   )
 }
-
-export default App

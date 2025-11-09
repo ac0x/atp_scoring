@@ -1,5 +1,6 @@
 export const API_BASE = import.meta.env.VITE_API_BASE as string | undefined
 export const HUB_URL = import.meta.env.VITE_HUB_URL as string | undefined
+export const LIVE_HUB_URL = import.meta.env.VITE_LIVE_HUB_URL as string | undefined
 
 export const SCENES = {
   ADS_MS: 5000,

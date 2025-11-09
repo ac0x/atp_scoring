@@ -2,6 +2,7 @@ using System.Linq;
 using Backend.Hubs;
 using Backend.Models;
 using Backend.Services;
+using Backend.SmartDirectorListener.Extensions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,7 +46,9 @@ builder.Services.AddSignalR().AddJsonProtocol(o =>
 // Background ticker i readiness tracking
 builder.Services.AddSingleton<ReadinessTracker>();
 builder.Services.Configure<TickerOptions>(builder.Configuration.GetSection("Ticker"));
-builder.Services.AddHostedService<TickerHostedService>();
+builder.Services.AddSingleton<TickerHostedService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<TickerHostedService>());
+builder.Services.AddSmartDirectorListener(builder.Configuration);
 
 var app = builder.Build();
 
@@ -90,6 +93,7 @@ app.MapGet("/readyz", (ReadinessTracker readiness) =>
 
 // SignalR hub
 app.MapHub<ScoreHub>("/hubs/score");
+app.MapHub<LiveHub>("/live");
 app.Services.GetRequiredService<ReadinessTracker>().MarkHubReady();
 
 app.Run();
